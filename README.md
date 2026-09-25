@@ -6,24 +6,11 @@ WireGuard tunnel manager with a native desktop interface.
 No account. No cloud. No telemetry. Your keys and profiles stay in files on
 your own machine.
 
-```
-   ┌──────────────────────────┐
-   │  wisp-app   (Qt6 / QML)  │   unprivileged
-   │  interface + stats       │
-   └────────────┬─────────────┘
-                │  unix socket, one line per request
-                │  UP home   /   DOWN home   /   STATUS home
-                ▼
-   ┌──────────────────────────┐
-   │  wispd      (root)       │   the only privileged component
-   │  reads /etc/wisp/tunnels │
-   └────────────┬─────────────┘
-                │  generic netlink (kernel wireguard family)
-                ▼
-   ┌──────────────────────────┐
-   │  kernel WireGuard module │   does the actual cryptography
-   └──────────────────────────┘
-```
+Three layers. `wisp-app` (Qt6/QML, unprivileged) shows the interface and
+stats. It talks to `wispd` (root, the only privileged component) over a unix
+socket, one line per request: `UP home`, `DOWN home`, `STATUS home`. `wispd`
+reads profiles from `/etc/wisp/tunnels` and configures the kernel WireGuard
+module over generic netlink. The kernel does the actual cryptography.
 
 ## Why another WireGuard client?
 

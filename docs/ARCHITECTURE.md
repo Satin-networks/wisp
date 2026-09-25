@@ -2,11 +2,8 @@
 
 Wisp is two processes and a kernel module. The UI asks for tunnels by name.
 The helper reads profiles from disk and configures the kernel. Nothing else
-crosses the privilege boundary.
-
-```
-wisp-app (Qt6/QML, user)  --UP home-->  wispd (root, CAP_NET_ADMIN)  --netlink-->  kernel WireGuard
-```
+crosses the privilege boundary: `wisp-app` sends `UP <name>`, the helper does
+the netlink work, and the kernel module encrypts.
 
 ## Processes
 
