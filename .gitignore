@@ -1,0 +1,20 @@
+build/
+build-*/
+*.o
+*.a
+*.so
+.cache/
+compile_commands.json
+.ccls-cache/
+.vscode/
+.idea/
+*.user
+
+# Provider import scratch (filled templates awaiting validation)
+providers/.work/
+
+# Fuzzer artefacts
+crash-*
+leak-*
+timeout-*
+slow-unit-*
