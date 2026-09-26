@@ -74,6 +74,11 @@ Three targets, three invariants:
 ./build-fuzz/fuzz/fuzz_ipc     -max_total_time=60 /tmp/wisp-corpus/ipc
 ```
 
+`fuzz/corpus/` ships starter seeds (a clean split profile, a hook and
+comment-heavy full tunnel, plain and hostile IPC lines). Copy them into the
+corpus dirs above so a short run starts from meaningful inputs instead of
+empty files.
+
 ## Static analysis and hardening evidence
 
 ```sh
