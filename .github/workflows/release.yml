@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libsodium-dev \
+            qt6-base-dev qt6-declarative-dev \
+            qml6-module-qtquick-window qml6-module-qtqml-workerscript \
+            socat python3
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stage artifacts
+        run: |
+          mkdir -p dist
+          cp build/helper/wispd dist/
+          cp build/app/wisp-app dist/
+          cp build/tests/wisp_tests dist/
+          cp LICENSE README.md SECURITY.md dist/
+          tar -czf wisp-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
+      - name: Publish release
+        run: >
+          gh release create ${{ github.ref_name }}
+          wisp-${{ github.ref_name }}-linux-x86_64.tar.gz
+          --title ${{ github.ref_name }} --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
