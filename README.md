@@ -269,7 +269,16 @@ the whole thing is testable without a display.
 2. systemd unit and polkit policy for the helper
 3. Profile signing, so a profile can be authenticated rather than just contained
 4. `ip rule` support for split routing by interface
-5. macOS and Windows backends
+5. macOS backend
+
+No Windows support. The port was started on a `windows` branch (since
+deleted) and stopped for concrete reasons: the data plane needs `wintun` or
+`wireguard-go`, the privilege boundary needs named pipes with SID checks in
+place of unix sockets and `SO_PEERCRED`, DNS and full-tunnel routing need
+NRPT and IP Helper equivalents, and none of it can be verified without
+Windows hardware in the loop. Shipping an untested VPN client would trade
+away the exact properties this project exists for. WSL2 or a Linux machine
+remains the way to run Wisp.
 
 ## Licence
 
