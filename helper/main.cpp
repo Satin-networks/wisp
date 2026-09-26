@@ -604,6 +604,10 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    if (*options->allowed_uid == 0) {
+        log_line("note: --uid 0 changes nothing, uid 0 is always allowed");
+    }
+
     std::signal(SIGPIPE, SIG_IGN);
     std::signal(SIGINT, handle_signal);
     std::signal(SIGTERM, handle_signal);
