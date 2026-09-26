@@ -116,6 +116,7 @@ struct Options {
     bool keep_privileges = false;
     bool verbose = false;
     bool fail_closed = false;
+    bool version = false;
 };
 
 void print_usage() {
@@ -132,7 +133,8 @@ void print_usage() {
               << "  --no-dns            never modify the system resolver\n"
               << "  --keep-privileges   do not drop capabilities (for debugging)\n"
               << "  --verbose           log every request (default: warnings/errors only)\n"
-              << "  --fail-closed       hostname/single-stack profiles fail instead of warn\n";
+              << "  --fail-closed       hostname/single-stack profiles fail instead of warn\n"
+              << "  --version           print the version and exit\n";
 }
 
 std::optional<Options> parse_arguments(int argc, char** argv) {
@@ -159,6 +161,8 @@ std::optional<Options> parse_arguments(int argc, char** argv) {
             options.verbose = true;
         } else if (argument == "--fail-closed") {
             options.fail_closed = true;
+        } else if (argument == "--version") {
+            options.version = true;
         } else if (argument == "--socket") {
             const auto value = next_value();
             if (!value) return std::nullopt;
@@ -182,7 +186,7 @@ std::optional<Options> parse_arguments(int argc, char** argv) {
         }
     }
 
-    if (!options.allowed_uid) {
+    if (!options.allowed_uid && !options.version) {
         // Secure by default: refuse to run without an explicit decision about
         // who may talk to us.
         std::cerr << "wispd: --uid is required (or set SUDO_UID when using sudo)\n";
@@ -502,19 +506,30 @@ struct Connection {
     std::string input;
 };
 
-bool peer_is_allowed(const Options& options, int fd) {
+// Who is on the other end of this connection, if the kernel will say.
+// Kept separate from policy below so identity and authorization read as two
+// steps instead of one tangled check.
+std::optional<uid_t> peer_uid(int fd) {
     ucred credentials{};
     socklen_t length = sizeof(credentials);
     if (::getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &credentials, &length) != 0) {
+        return std::nullopt;
+    }
+    return credentials.uid;
+}
+
+bool peer_is_allowed(const Options& options, int fd) {
+    const auto uid = peer_uid(fd);
+    if (!uid) {
         log_line("refused a connection whose peer could not be identified");
         return false;
     }
 
     // uid 0 is always allowed, which is what lets root use the tool it manages.
-    if (credentials.uid == 0) return true;
-    if (options.allowed_uid && credentials.uid == *options.allowed_uid) return true;
+    if (*uid == 0) return true;
+    if (options.allowed_uid && *uid == *options.allowed_uid) return true;
 
-    log_line("refused a connection from uid " + std::to_string(credentials.uid));
+    log_line("refused a connection from uid " + std::to_string(*uid));
     return false;
 }
 
@@ -578,6 +593,66 @@ Service service_connection(Connection& connection, const Options& options, wisp:
     return peer_closed ? Service::Close : Service::KeepOpen;
 }
 
+// Creates, binds, and listens on the socket, then returns it. Empty on any
+// failure, with the reason already logged and the fd closed, so no failure
+// path can leak the descriptor.
+std::optional<int> bind_listener(const Options& options) {
+    const int server = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (server < 0) {
+        log_line(std::string("socket() failed: ") + std::strerror(errno));
+        return std::nullopt;
+    }
+    const auto abandon = [&](const std::string& message) -> std::optional<int> {
+        log_line(message);
+        ::close(server);
+        return std::nullopt;
+    };
+
+    {
+        const auto parent =
+            std::filesystem::path(options.socket_path).parent_path().string();
+        std::error_code ignored;
+        if (!parent.empty() && !std::filesystem::exists(parent, ignored)) {
+            std::filesystem::create_directories(parent, ignored);
+            ::chmod(parent.c_str(), 0700);
+        }
+        if (!parent.empty() && !dir_is_secure(parent)) {
+            return abandon("refusing to bind: insecure socket directory " + parent);
+        }
+        if (::geteuid() == 0 && !options.dry_run && !dir_is_secure(options.config_dir)) {
+            return abandon("refusing to start: insecure config directory " + options.config_dir);
+        }
+    }
+
+    ::unlink(options.socket_path.c_str());
+
+    sockaddr_un address{};
+    address.sun_family = AF_UNIX;
+    if (options.socket_path.size() >= sizeof(address.sun_path)) {
+        return abandon("socket path is too long");
+    }
+    std::strncpy(address.sun_path, options.socket_path.c_str(), sizeof(address.sun_path) - 1);
+
+    if (::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
+        return abandon(std::string("bind() failed: ") + std::strerror(errno) +
+                       " (does the directory exist?)");
+    }
+
+    // The socket is the second half of the access control: only the allowed
+    // user can open it at all, and the peer check runs on top. This needs
+    // CAP_CHOWN, so it happens before the capability drop.
+    ::chmod(options.socket_path.c_str(), S_IRUSR | S_IWUSR);
+    if (::chown(options.socket_path.c_str(), *options.allowed_uid, static_cast<gid_t>(-1)) != 0) {
+        log_line(std::string("chown() failed: ") + std::strerror(errno));
+    }
+
+    if (::listen(server, 8) < 0) {
+        return abandon(std::string("listen() failed: ") + std::strerror(errno));
+    }
+
+    return server;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -590,6 +665,10 @@ int main(int argc, char** argv) {
 
     auto options = parse_arguments(argc, argv);
     if (!options) return 2;
+    if (options->version) {
+        std::cout << "wispd " << WISP_VERSION << "\n";
+        return 0;
+    }
     g_verbose = options->verbose;
     if (!options->allowed_uid && sudo_uid) options->allowed_uid = sudo_uid;
 
@@ -624,60 +703,9 @@ int main(int argc, char** argv) {
     auto dns = wisp::make_dns_manager(dns_backend, dns_environment);
     wisp::DnsManager* dns_ptr = dns_backend == wisp::DnsBackend::None ? nullptr : dns.get();
 
-    const int server = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (server < 0) {
-        log_line(std::string("socket() failed: ") + std::strerror(errno));
-        return 1;
-    }
-
-    {
-        const auto parent =
-            std::filesystem::path(options->socket_path).parent_path().string();
-        std::error_code ignored;
-        if (!parent.empty() && !std::filesystem::exists(parent, ignored)) {
-            std::filesystem::create_directories(parent, ignored);
-            ::chmod(parent.c_str(), 0700);
-        }
-        if (!parent.empty() && !dir_is_secure(parent)) {
-            log_line("refusing to bind: insecure socket directory " + parent);
-            ::close(server);
-            return 1;
-        }
-        if (::geteuid() == 0 && !options->dry_run && !dir_is_secure(options->config_dir)) {
-            log_line("refusing to start: insecure config directory " + options->config_dir);
-            ::close(server);
-            return 1;
-        }
-    }
-
-    ::unlink(options->socket_path.c_str());
-
-    sockaddr_un address{};
-    address.sun_family = AF_UNIX;
-    if (options->socket_path.size() >= sizeof(address.sun_path)) {
-        log_line("socket path is too long");
-        return 1;
-    }
-    std::strncpy(address.sun_path, options->socket_path.c_str(), sizeof(address.sun_path) - 1);
-
-    if (::bind(server, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        log_line(std::string("bind() failed: ") + std::strerror(errno) +
-                 " (does the directory exist?)");
-        return 1;
-    }
-
-    // The socket is the second half of the access control: only the allowed
-    // user can open it at all, and SO_PEERCRED is then checked as well. This
-    // needs CAP_CHOWN, so it happens before the capability drop.
-    ::chmod(options->socket_path.c_str(), S_IRUSR | S_IWUSR);
-    if (::chown(options->socket_path.c_str(), *options->allowed_uid, static_cast<gid_t>(-1)) != 0) {
-        log_line(std::string("chown() failed: ") + std::strerror(errno));
-    }
-
-    if (::listen(server, 8) < 0) {
-        log_line(std::string("listen() failed: ") + std::strerror(errno));
-        return 1;
-    }
+    const auto server = bind_listener(*options);
+    if (!server) return 1;
+    const int listener = *server;
 
     log_line("listening on " + options->socket_path + " for uid " +
              std::to_string(*options->allowed_uid) + " (dns: " +
@@ -697,7 +725,7 @@ int main(int argc, char** argv) {
     while (g_running) {
         std::vector<pollfd> watched;
         watched.reserve(connections.size() + 1);
-        watched.push_back(pollfd{server, POLLIN, 0});
+        watched.push_back(pollfd{listener, POLLIN, 0});
         for (const auto& connection : connections) {
             watched.push_back(pollfd{connection.fd, POLLIN, 0});
         }
@@ -710,7 +738,7 @@ int main(int argc, char** argv) {
         }
 
         if ((watched[0].revents & POLLIN) != 0) {
-            const int connection = ::accept4(server, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
+            const int connection = ::accept4(listener, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK);
             if (connection >= 0) {
                 if (connections.size() >= kMaxConnections) {
                     log_line("refused a connection: too many outstanding");
@@ -764,7 +792,7 @@ int main(int argc, char** argv) {
     }
 
     for (const auto& connection : connections) ::close(connection.fd);
-    ::close(server);
+    ::close(listener);
     ::unlink(options->socket_path.c_str());
     log_line("stopped");
     return 0;
