@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
@@ -40,6 +41,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "wisp/config.hpp"
@@ -752,8 +754,12 @@ int main(int argc, char** argv) {
                     connections.push_back(Connection{connection, {}});
                 }
             } else if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                // Transient accept failures (EMFILE, ECONNABORTED) must not
+                // take the daemon down: log, pause so a persistent failure
+                // cannot spin, and keep serving. Exiting here used to turn a
+                // full fd table into a dead helper.
                 log_line(std::string("accept() failed: ") + std::strerror(errno));
-                break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
         }
 
