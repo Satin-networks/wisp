@@ -22,6 +22,7 @@ config_dir="$work_dir/tunnels"
 gui_stderr="$work_dir/gui-stderr.txt"
 
 helper_pid=""
+verbose_pid=""
 passed=0
 failed=0
 
@@ -29,6 +30,10 @@ cleanup() {
     if [[ -n "$helper_pid" ]]; then
         kill "$helper_pid" 2>/dev/null
         wait "$helper_pid" 2>/dev/null
+    fi
+    if [[ -n "$verbose_pid" ]]; then
+        kill "$verbose_pid" 2>/dev/null
+        wait "$verbose_pid" 2>/dev/null
     fi
     rm -rf "$work_dir"
 }
