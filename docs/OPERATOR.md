@@ -59,26 +59,17 @@ Flags:
 | `--fail-closed` | refuse hostname endpoints and single-stack full tunnels instead of reporting them |
 | `--keep-privileges` | skip the capability drop. Debugging only, needs `WISP_ALLOW_KEEP_PRIVILEGES=1` |
 
-There is no systemd unit or polkit policy in the repo yet. A minimal unit to
-adapt looks like this:
+There is no systemd unit or polkit policy installed by the build yet. A ready
+example lives at `packaging/wispd.service`:
 
-```ini
-[Unit]
-Description=Wisp privileged helper
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/wispd --uid 1000
-Restart=on-failure
-NoNewPrivileges=yes
-
-[Install]
-WantedBy=multi-user.target
+```
+sudo cp packaging/wispd.service /etc/systemd/system/wispd.service
+# edit ExecStart: replace 1000 with the real uid
+sudo systemctl enable --now wispd
 ```
 
-Replace `1000` with the real uid. `NoNewPrivileges=yes` mirrors what the
-daemon sets on itself with `prctl`.
+`NoNewPrivileges=yes` in the unit mirrors what the daemon sets on itself
+with `prctl`. Defense in depth, not a substitute.
 
 ## 3. DNS behaviour
 

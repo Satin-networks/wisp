@@ -1,0 +1,17 @@
+# Example wispd unit. Copy to /etc/systemd/system/wispd.service, set the real
+# uid, then systemctl enable --now wispd. See docs/OPERATOR.md for the full
+# story: directories, permissions, flags, and DNS behaviour.
+[Unit]
+Description=Wisp privileged helper
+After=network.target
+
+[Service]
+Type=simple
+# Replace 1000 with the uid allowed on the socket.
+ExecStart=/usr/local/bin/wispd --uid 1000
+Restart=on-failure
+# Mirrors what the daemon sets on itself; defense in depth, not a substitute.
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
