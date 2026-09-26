@@ -99,7 +99,7 @@ Requires a C++20 compiler, CMake 3.20+, libsodium, and Qt6 for the GUI.
 ```sh
 sudo apt install build-essential cmake pkg-config libsodium-dev \
                  qt6-base-dev qt6-declarative-dev \
-                 qml6-module-qtquick-window qml6-module-qtqml-workerscript
+                 qml6-module-qtquick qml6-module-qtquick-window qml6-module-qtqml-workerscript
 
 cmake -S . -B build
 cmake --build build -j
