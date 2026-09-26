@@ -402,6 +402,29 @@ fi
 # --fail-closed refuses hostname endpoints that would leak DNS in the clear.
 check_contains "dry run reports hostname endpoints" "hostnames=1" "$(ask 'UP home-office')"
 
+# Exit codes: help and version succeed without a uid, anything else fails.
+check_exit() {
+    local label="$1" expected="$2"
+    shift 2
+    "$@" >/dev/null 2>&1
+    local status=$?
+    if [[ "$status" -eq "$expected" ]]; then
+        printf '  ok   %s\n' "$label"
+        passed=$((passed + 1))
+    else
+        printf '  FAIL %s (exit %s, want %s)\n' "$label" "$status" "$expected"
+        failed=$((failed + 1))
+    fi
+}
+
+check_exit "--help exits 0 without --uid" 0 "$build_dir/helper/wispd" --help
+check_exit "-h exits 0 without --uid" 0 "$build_dir/helper/wispd" -h
+check_exit "--version exits 0 without --uid" 0 "$build_dir/helper/wispd" --version
+check_exit "unknown flag exits nonzero" 2 "$build_dir/helper/wispd" --bogus --uid "$(id -u)"
+check_exit "missing --uid exits nonzero" 2 env -u SUDO_UID "$build_dir/helper/wispd" --dry-run
+check_contains "--version prints the daemon name" "wispd " \
+    "$("$build_dir/helper/wispd" --version 2>/dev/null)"
+
 echo
 echo "$passed passed, $failed failed"
 echo

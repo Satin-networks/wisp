@@ -117,24 +117,25 @@ struct Options {
     bool verbose = false;
     bool fail_closed = false;
     bool version = false;
+    bool help = false;
 };
 
-void print_usage() {
-    std::cerr << "usage: wispd [--socket PATH] [--config-dir DIR] [--uid UID]\n"
-              << "             [--dry-run] [--no-dns] [--keep-privileges]\n"
-              << "             [--verbose] [--fail-closed]\n"
-              << "\n"
-              << "  --socket PATH       unix socket to listen on (default "
-              << wisp::ipc::kDefaultSocketPath << ")\n"
-              << "  --config-dir DIR    directory of <name>.conf profiles (default "
-              << wisp::ipc::kDefaultConfigDir << ")\n"
-              << "  --uid UID           the only non-root user allowed to connect\n"
-              << "  --dry-run           parse and report, but never touch netlink\n"
-              << "  --no-dns            never modify the system resolver\n"
-              << "  --keep-privileges   do not drop capabilities (for debugging)\n"
-              << "  --verbose           log every request (default: warnings/errors only)\n"
-              << "  --fail-closed       hostname/single-stack profiles fail instead of warn\n"
-              << "  --version           print the version and exit\n";
+void print_usage(std::ostream& out) {
+    out << "usage: wispd [--socket PATH] [--config-dir DIR] [--uid UID]\n"
+        << "             [--dry-run] [--no-dns] [--keep-privileges]\n"
+        << "             [--verbose] [--fail-closed]\n"
+        << "\n"
+        << "  --socket PATH       unix socket to listen on (default "
+        << wisp::ipc::kDefaultSocketPath << ")\n"
+        << "  --config-dir DIR    directory of <name>.conf profiles (default "
+        << wisp::ipc::kDefaultConfigDir << ")\n"
+        << "  --uid UID           the only non-root user allowed to connect\n"
+        << "  --dry-run           parse and report, but never touch netlink\n"
+        << "  --no-dns            never modify the system resolver\n"
+        << "  --keep-privileges   do not drop capabilities (for debugging)\n"
+        << "  --verbose           log every request (default: warnings/errors only)\n"
+        << "  --fail-closed       hostname/single-stack profiles fail instead of warn\n"
+        << "  --version           print the version and exit\n";
 }
 
 std::optional<Options> parse_arguments(int argc, char** argv) {
@@ -148,10 +149,8 @@ std::optional<Options> parse_arguments(int argc, char** argv) {
         };
 
         if (argument == "--help" || argument == "-h") {
-            print_usage();
-            return std::nullopt;
-        }
-        if (argument == "--dry-run") {
+            options.help = true;
+        } else if (argument == "--dry-run") {
             options.dry_run = true;
         } else if (argument == "--no-dns") {
             options.no_dns = true;
@@ -186,7 +185,7 @@ std::optional<Options> parse_arguments(int argc, char** argv) {
         }
     }
 
-    if (!options.allowed_uid && !options.version) {
+    if (!options.allowed_uid && !options.version && !options.help) {
         // Secure by default: refuse to run without an explicit decision about
         // who may talk to us.
         std::cerr << "wispd: --uid is required (or set SUDO_UID when using sudo)\n";
@@ -665,6 +664,10 @@ int main(int argc, char** argv) {
 
     auto options = parse_arguments(argc, argv);
     if (!options) return 2;
+    if (options->help) {
+        print_usage(std::cout);
+        return 0;
+    }
     if (options->version) {
         std::cout << "wispd " << WISP_VERSION << "\n";
         return 0;
