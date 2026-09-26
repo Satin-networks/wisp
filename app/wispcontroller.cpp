@@ -380,6 +380,13 @@ void WispController::refreshList() {
                     ++it;
                 }
             }
+            for (auto it = bestThroughput_.begin(); it != bestThroughput_.end();) {
+                if (!tunnels_.contains(it.key())) {
+                    it = bestThroughput_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
             recomputeFastest();
             emit tunnelsChanged();
             if (pruned) emit scoresChanged();

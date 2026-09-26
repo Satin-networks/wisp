@@ -234,7 +234,6 @@ class WispController : public QObject {
     QVariantMap tunnelScores_;
     QString fastestTunnel_;
     QMap<QString, double> bestThroughput_;
-    QMap<QString, qint64> lastHandshakeSeen_;
 
     void loadTheme();
     void saveTheme();
