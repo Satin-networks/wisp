@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -578,7 +579,19 @@ Service service_connection(Connection& connection, const Options& options, wisp:
         }
 
         const auto verb = wisp::ipc::parse_request(scratch).verb;
-        const std::string response = handle_request(options, client, dns, scratch);
+        // One request must never kill the daemon. Anything thrown below
+        // (bad_alloc from a hostile input size, however capped) becomes a
+        // single error reply on a closed connection, and the loop goes on.
+        const std::string response = [&]() -> std::string {
+            try {
+                return handle_request(options, client, dns, scratch);
+            } catch (const std::exception& failure) {
+                log_line(std::string("request failed: ") + failure.what());
+            } catch (...) {
+                log_line("request failed with an unknown error");
+            }
+            return wisp::ipc::encode_error("internal error");
+        }();
         // Per-request logging is opt-in: at 400ms STATUS polling it would
         // otherwise write a persistent activity timeline to stderr/journald.
         verbose_log(wisp::ipc::sanitize_for_display(verb) + " -> " +
